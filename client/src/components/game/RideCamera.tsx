@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useMemo } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { useRollerCoaster } from "@/lib/stores/useRollerCoaster";
@@ -6,15 +6,54 @@ import { getTrackCurve } from "./Track";
 
 export function RideCamera() {
   const { camera } = useThree();
-  const { trackPoints, isRiding, rideProgress, setRideProgress, rideSpeed, stopRide, isLooped } = useRollerCoaster();
+  const { trackPoints, isRiding, rideProgress, setRideProgress, rideSpeed, stopRide, isLooped, hasChainLift } = useRollerCoaster();
   
   const curveRef = useRef<THREE.CatmullRomCurve3 | null>(null);
   const previousCameraPos = useRef(new THREE.Vector3());
   const previousLookAt = useRef(new THREE.Vector3());
+  const velocityRef = useRef(0.5);
+  
+  const firstPeakT = useMemo(() => {
+    if (trackPoints.length < 2) return 0;
+    
+    const curve = getTrackCurve(trackPoints, isLooped);
+    if (!curve) return 0;
+    
+    let maxHeight = -Infinity;
+    let peakT = 0;
+    let foundClimb = false;
+    
+    for (let t = 0; t <= 0.5; t += 0.01) {
+      const point = curve.getPoint(t);
+      const tangent = curve.getTangent(t);
+      
+      if (tangent.y > 0.1) {
+        foundClimb = true;
+      }
+      
+      if (foundClimb && point.y > maxHeight) {
+        maxHeight = point.y;
+        peakT = t;
+      }
+      
+      if (foundClimb && tangent.y < -0.1 && t > peakT) {
+        break;
+      }
+    }
+    
+    return peakT > 0 ? peakT : 0.2;
+  }, [trackPoints, isLooped]);
   
   useEffect(() => {
     curveRef.current = getTrackCurve(trackPoints, isLooped);
+    velocityRef.current = 0.5;
   }, [trackPoints, isLooped]);
+  
+  useEffect(() => {
+    if (isRiding) {
+      velocityRef.current = 0.5;
+    }
+  }, [isRiding]);
   
   useFrame((_, delta) => {
     if (!isRiding || !curveRef.current) return;
@@ -22,20 +61,27 @@ export function RideCamera() {
     const curve = curveRef.current;
     const curveLength = curve.getLength();
     
-    const currentPoint = curve.getPoint(rideProgress);
     const tangent = curve.getTangent(rideProgress);
-    
     const slope = tangent.y;
-    const baseSpeed = rideSpeed;
     
-    let speedMultiplier = 1.0;
-    if (slope < 0) {
-      speedMultiplier = 1.0 + Math.abs(slope) * 3.0;
-    } else if (slope > 0) {
-      speedMultiplier = Math.max(0.2, 1.0 - slope * 2.5);
+    let speed: number;
+    
+    if (hasChainLift && rideProgress < firstPeakT) {
+      const chainSpeed = 0.3 * rideSpeed;
+      speed = chainSpeed;
+      velocityRef.current = chainSpeed;
+    } else {
+      const gravity = 15.0;
+      const drag = 0.02;
+      
+      const acceleration = -slope * gravity;
+      velocityRef.current += acceleration * delta;
+      velocityRef.current *= (1 - drag);
+      velocityRef.current = Math.max(0.3, velocityRef.current);
+      velocityRef.current = Math.min(8.0, velocityRef.current);
+      
+      speed = velocityRef.current * rideSpeed;
     }
-    
-    const speed = baseSpeed * speedMultiplier;
     
     const progressDelta = (speed * delta) / curveLength;
     let newProgress = rideProgress + progressDelta;
@@ -43,6 +89,9 @@ export function RideCamera() {
     if (newProgress >= 1) {
       if (isLooped) {
         newProgress = newProgress % 1;
+        if (hasChainLift) {
+          velocityRef.current = 0.5;
+        }
       } else {
         stopRide();
         return;
@@ -52,12 +101,15 @@ export function RideCamera() {
     setRideProgress(newProgress);
     
     const position = curve.getPoint(newProgress);
-    const lookAheadT = Math.min(newProgress + 0.02, 1);
+    const lookAheadT = isLooped 
+      ? (newProgress + 0.02) % 1 
+      : Math.min(newProgress + 0.02, 0.999);
     const lookAtPoint = curve.getPoint(lookAheadT);
     
+    const newTangent = curve.getTangent(newProgress);
     const binormal = new THREE.Vector3();
     const normal = new THREE.Vector3(0, 1, 0);
-    binormal.crossVectors(tangent, normal).normalize();
+    binormal.crossVectors(newTangent, normal).normalize();
     
     const cameraHeight = 1.5;
     const cameraOffset = normal.clone().multiplyScalar(cameraHeight);

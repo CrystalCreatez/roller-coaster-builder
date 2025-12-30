@@ -18,6 +18,8 @@ export function GameUI() {
     setIsAddingPoints,
     isLooped,
     setIsLooped,
+    hasChainLift,
+    setHasChainLift,
   } = useRollerCoaster();
   
   const canRide = trackPoints.length >= 2;
@@ -56,6 +58,15 @@ export function GameUI() {
                   : "bg-gray-600 hover:bg-gray-700"}
               >
                 {isLooped ? "Loop Track (ON)" : "Loop Track (OFF)"}
+              </Button>
+              
+              <Button
+                onClick={() => setHasChainLift(!hasChainLift)}
+                className={hasChainLift 
+                  ? "bg-yellow-600 hover:bg-yellow-700" 
+                  : "bg-gray-600 hover:bg-gray-700"}
+              >
+                {hasChainLift ? "Chain Lift (ON)" : "Chain Lift (OFF)"}
               </Button>
               
               <Button
