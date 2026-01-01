@@ -131,28 +131,36 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
       
       const loopRadius = 8;
       const numPoints = 20;
+      const separationDist = loopRadius + 2; // How far outside the loop comes down
       const loopPoints: TrackPoint[] = [];
       
       // Compute right vector (perpendicular to forward in horizontal plane)
       const up = new THREE.Vector3(0, 1, 0);
       const right = new THREE.Vector3().crossVectors(forward, up).normalize();
       
-      // Pure circular loop in forward-up plane:
-      // θ from 0 to 2π
-      // forward = sin(θ) * R: 0 → +R → 0 → -R → 0 (goes forward to far side, back to near)
-      // vertical = (1-cos(θ)) * R: 0 → R → 2R → R → 0 (up and over)
-      // Train travels on INSIDE of loop, up far side, over top, down near side
+      // Get the next point (unchanged) so we can rejoin it
+      const nextPoint = state.trackPoints[pointIndex + 1];
       
-      for (let i = 1; i < numPoints; i++) {
+      // Pure circular loop in forward-up plane with lateral offset on descent:
+      // - Ascending half (t < 0.5): pure circle
+      // - Descending half (t > 0.5): gradually moves outside (lateral offset)
+      
+      for (let i = 1; i <= numPoints; i++) {
         const t = i / numPoints;
         const theta = t * Math.PI * 2;
         
         const forwardOffset = Math.sin(theta) * loopRadius;
         const verticalOffset = (1 - Math.cos(theta)) * loopRadius;
         
-        const x = entryPos.x + forward.x * forwardOffset;
+        // Lateral ease: only applies on descending half (t > 0.5)
+        // smoothstep from 0.5 to 1.0
+        const lateralT = Math.max(0, (t - 0.5) / 0.5);
+        const lateralEase = lateralT * lateralT * (3 - 2 * lateralT);
+        const lateralOffset = lateralEase * separationDist;
+        
+        const x = entryPos.x + forward.x * forwardOffset + right.x * lateralOffset;
         const y = entryPos.y + verticalOffset;
-        const z = entryPos.z + forward.z * forwardOffset;
+        const z = entryPos.z + forward.z * forwardOffset + right.z * lateralOffset;
         
         loopPoints.push({
           id: `point-${++pointCounter}`,
@@ -161,36 +169,31 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
         });
       }
       
-      // Separation distance for downstream track (lateral shift to prevent collision)
-      const separationDist = loopRadius * 2 + 4;
+      // Loop exit position (last point of loop)
+      const loopExit = loopPoints[loopPoints.length - 1].position.clone();
       
-      // Add transition point to smoothly connect loop exit to shifted downstream
-      const transitionPoint: TrackPoint = {
-        id: `point-${++pointCounter}`,
-        position: new THREE.Vector3(
-          entryPos.x + right.x * separationDist,
-          entryPos.y,
-          entryPos.z + right.z * separationDist
-        ),
-        tilt: 0
-      };
+      // Create transition points to smoothly return to the original next point
+      const transitionPoints: TrackPoint[] = [];
+      if (nextPoint) {
+        const nextPos = nextPoint.position.clone();
+        // Midpoint transition
+        transitionPoints.push({
+          id: `point-${++pointCounter}`,
+          position: new THREE.Vector3(
+            (loopExit.x + nextPos.x) / 2,
+            (loopExit.y + nextPos.y) / 2,
+            (loopExit.z + nextPos.z) / 2
+          ),
+          tilt: 0
+        });
+      }
       
-      // Shift all downstream points laterally
-      const shiftedDownstreamPoints = state.trackPoints.slice(pointIndex + 1).map(p => ({
-        ...p,
-        position: new THREE.Vector3(
-          p.position.x + right.x * separationDist,
-          p.position.y,
-          p.position.z + right.z * separationDist
-        )
-      }));
-      
-      // Combine: original up to entry + loop + transition + shifted remainder
+      // Combine: original up to entry + loop + transitions + original remainder (unchanged)
       const newTrackPoints = [
         ...state.trackPoints.slice(0, pointIndex + 1),
         ...loopPoints,
-        transitionPoint,
-        ...shiftedDownstreamPoints
+        ...transitionPoints,
+        ...state.trackPoints.slice(pointIndex + 1)
       ];
       
       return { trackPoints: newTrackPoints };
