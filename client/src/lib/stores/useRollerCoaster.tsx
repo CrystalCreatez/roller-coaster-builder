@@ -3,10 +3,20 @@ import * as THREE from "three";
 
 export type CoasterMode = "build" | "ride" | "preview";
 
+export interface LoopMetadata {
+  entryPos: THREE.Vector3;
+  forward: THREE.Vector3;
+  up: THREE.Vector3;
+  right: THREE.Vector3;
+  radius: number;
+  theta: number; // 0 to 2π position in loop
+}
+
 export interface TrackPoint {
   id: string;
   position: THREE.Vector3;
   tilt: number;
+  loopMeta?: LoopMetadata; // Present if this point is part of a loop
 }
 
 interface RollerCoasterState {
@@ -157,7 +167,15 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
             entryPos.y + verticalOffset,
             entryPos.z + forward.z * forwardOffset + right.z * lateralOffset
           ),
-          tilt: 0
+          tilt: 0,
+          loopMeta: {
+            entryPos: entryPos.clone(),
+            forward: forward.clone(),
+            up: up.clone(),
+            right: right.clone(),
+            radius: loopRadius,
+            theta: theta
+          }
         });
       }
       

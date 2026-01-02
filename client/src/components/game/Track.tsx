@@ -35,11 +35,34 @@ export function Track() {
     const railData: { point: THREE.Vector3; tilt: number; tangent: THREE.Vector3; normal: THREE.Vector3 }[] = [];
     const numSamples = Math.max(trackPoints.length * 20, 100);
     
-    // Pure parallel transport: rotate the up vector along with the tangent changes
-    // This ensures smooth, continuous orientation through the entire track
-    let prevTangent = curve.getTangent(0).normalize();
+    // Helper to get loop metadata at parameter t
+    const getLoopMetaAt = (t: number): { meta: typeof trackPoints[0]['loopMeta'], theta: number } | null => {
+      const n = trackPoints.length;
+      const scaledT = t * (isLooped ? n : n - 1);
+      const idx = Math.floor(scaledT);
+      const frac = scaledT - idx;
+      
+      const i0 = isLooped ? ((idx % n) + n) % n : Math.min(idx, n - 1);
+      const i1 = isLooped ? ((idx + 1) % n) : Math.min(idx + 1, n - 1);
+      
+      const p0 = trackPoints[i0];
+      const p1 = trackPoints[i1];
+      
+      // If either point has loop metadata, interpolate
+      if (p0.loopMeta && p1.loopMeta) {
+        // Interpolate theta between the two points
+        const theta = p0.loopMeta.theta + frac * (p1.loopMeta.theta - p0.loopMeta.theta);
+        return { meta: p0.loopMeta, theta };
+      } else if (p0.loopMeta) {
+        return { meta: p0.loopMeta, theta: p0.loopMeta.theta };
+      } else if (p1.loopMeta) {
+        return { meta: p1.loopMeta, theta: p1.loopMeta.theta };
+      }
+      return null;
+    };
     
-    // Initialize up vector perpendicular to first tangent
+    // Standard parallel transport initialization
+    let prevTangent = curve.getTangent(0).normalize();
     let prevUp = new THREE.Vector3(0, 1, 0);
     const initDot = prevUp.dot(prevTangent);
     prevUp.sub(prevTangent.clone().multiplyScalar(initDot));
@@ -57,47 +80,86 @@ export function Track() {
       const tilt = interpolateTilt(trackPoints, t, isLooped);
       
       let up: THREE.Vector3;
+      let normal: THREE.Vector3;
       
-      if (i === 0) {
-        up = prevUp.clone();
-      } else {
-        // Quaternion rotation from previous tangent to current tangent
-        const dot = Math.max(-1, Math.min(1, prevTangent.dot(tangent)));
+      // Check if we're in a loop segment
+      const loopInfo = getLoopMetaAt(t);
+      
+      if (loopInfo && loopInfo.meta) {
+        // Use reference frame from loop metadata - orientation based on ideal circle, not helical path
+        const meta = loopInfo.meta;
+        const theta = loopInfo.theta;
         
-        if (dot > 0.9999) {
-          // Nearly same direction
-          up = prevUp.clone();
-        } else if (dot < -0.9999) {
-          // Opposite direction - rotate 180 around the up vector
+        // Reference tangent for ideal circular loop: d/dθ of (sin(θ), 1-cos(θ)) = (cos(θ), sin(θ))
+        const refTangent = new THREE.Vector3()
+          .addScaledVector(meta.forward, Math.cos(theta))
+          .addScaledVector(meta.up, Math.sin(theta))
+          .normalize();
+        
+        // The "up" relative to the loop plane is the inward radial direction
+        // Radial: (sin(θ), 1-cos(θ)) normalized, pointing from center to point
+        // Center is at entryPos + up*radius, point is at center + radial*radius
+        // Inward normal points from point toward center = -radial
+        const radialDir = new THREE.Vector3()
+          .addScaledVector(meta.forward, Math.sin(theta))
+          .addScaledVector(meta.up, 1 - Math.cos(theta))
+          .normalize();
+        
+        // "Up" for the track is the inward radial (pointing to loop center)
+        up = radialDir.clone().negate();
+        
+        // Normal (sideways) is the right vector - constant throughout the loop
+        normal = meta.right.clone();
+        
+        // Ensure orthogonality with actual tangent
+        const upDot = up.dot(tangent);
+        up.sub(tangent.clone().multiplyScalar(upDot));
+        if (up.length() > 0.01) {
+          up.normalize();
+        }
+        
+        // Re-derive normal from tangent x up
+        normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
+        
+        prevUp.copy(up);
+        prevTangent.copy(tangent);
+      } else {
+        // Standard parallel transport for non-loop sections
+        if (i === 0) {
           up = prevUp.clone();
         } else {
-          // Normal case: rotate up by the same rotation that takes prevTangent to tangent
-          const axis = new THREE.Vector3().crossVectors(prevTangent, tangent);
-          if (axis.length() > 0.0001) {
-            axis.normalize();
-            const angle = Math.acos(dot);
-            const quat = new THREE.Quaternion().setFromAxisAngle(axis, angle);
-            up = prevUp.clone().applyQuaternion(quat);
+          const dot = Math.max(-1, Math.min(1, prevTangent.dot(tangent)));
+          
+          if (dot > 0.9999) {
+            up = prevUp.clone();
+          } else if (dot < -0.9999) {
+            up = prevUp.clone();
+          } else {
+            const axis = new THREE.Vector3().crossVectors(prevTangent, tangent);
+            if (axis.length() > 0.0001) {
+              axis.normalize();
+              const angle = Math.acos(dot);
+              const quat = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+              up = prevUp.clone().applyQuaternion(quat);
+            } else {
+              up = prevUp.clone();
+            }
+          }
+          
+          const upDot = up.dot(tangent);
+          up.sub(tangent.clone().multiplyScalar(upDot));
+          if (up.length() > 0.001) {
+            up.normalize();
           } else {
             up = prevUp.clone();
           }
         }
         
-        // Re-orthogonalize to ensure up is perpendicular to tangent
-        const upDot = up.dot(tangent);
-        up.sub(tangent.clone().multiplyScalar(upDot));
-        if (up.length() > 0.001) {
-          up.normalize();
-        } else {
-          up = prevUp.clone();
-        }
+        prevTangent.copy(tangent);
+        prevUp.copy(up);
+        
+        normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
       }
-      
-      prevTangent.copy(tangent);
-      prevUp.copy(up);
-      
-      // Derive normal (sideways) from tangent × up
-      const normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
       
       railData.push({ point, tilt, tangent, normal });
     }
