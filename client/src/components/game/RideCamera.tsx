@@ -167,11 +167,11 @@ export function RideCamera() {
     const bankQuat = new THREE.Quaternion().setFromAxisAngle(tangent, -previousRoll.current);
     const bankedUp = upVector.clone().applyQuaternion(bankQuat);
     
-    // Compute right vector from tangent and banked up
-    const rightVector = new THREE.Vector3().crossVectors(tangent, bankedUp).normalize();
+    // Compute right vector from banked up and tangent (up × forward = right in right-handed system)
+    const rightVector = new THREE.Vector3().crossVectors(bankedUp, tangent).normalize();
     
-    // Recompute up to ensure orthogonality
-    const finalUp = new THREE.Vector3().crossVectors(rightVector, tangent).normalize();
+    // Recompute up to ensure orthogonality (forward × right = up)
+    const finalUp = new THREE.Vector3().crossVectors(tangent, rightVector).normalize();
     
     // Calculate slope intensity for thrill effects (0 = flat, 1 = straight down)
     const slopeIntensity = Math.max(0, -tangent.y);
