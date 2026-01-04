@@ -36,7 +36,7 @@ export function TrackPoint({ id, position, tilt, index }: TrackPointProps) {
       if (!event.value && meshRef.current) {
         const worldPos = new THREE.Vector3();
         meshRef.current.getWorldPosition(worldPos);
-        const clampedY = Math.max(0.25, worldPos.y);
+        const clampedY = Math.max(0.5, worldPos.y);
         updateTrackPoint(id, new THREE.Vector3(worldPos.x, clampedY, worldPos.z));
       }
     };
@@ -45,7 +45,7 @@ export function TrackPoint({ id, position, tilt, index }: TrackPointProps) {
       if (meshRef.current) {
         const worldPos = new THREE.Vector3();
         meshRef.current.getWorldPosition(worldPos);
-        const clampedY = Math.max(0.25, worldPos.y);
+        const clampedY = Math.max(0.5, worldPos.y);
         updateTrackPoint(id, new THREE.Vector3(worldPos.x, clampedY, worldPos.z));
       }
     };
@@ -79,7 +79,7 @@ export function TrackPoint({ id, position, tilt, index }: TrackPointProps) {
         position={[position.x, position.y, position.z]}
         onClick={handleClick}
       >
-        <sphereGeometry args={[0.25, 16, 16]} />
+        <sphereGeometry args={[0.5, 16, 16]} />
         <meshStandardMaterial
           color={isSelected ? "#ff6600" : "#4488ff"}
           emissive={isSelected ? "#ff3300" : "#000000"}
@@ -93,13 +93,13 @@ export function TrackPoint({ id, position, tilt, index }: TrackPointProps) {
             ref={transformRef}
             object={meshRef.current}
             mode="translate"
-            size={0.4}
+            size={0.75}
             showX={true}
             showY={true}
             showZ={true}
           />
           
-          <Html position={[position.x, position.y + 1, position.z]} center>
+          <Html position={[position.x, position.y + 2, position.z]} center>
             <div 
               className="bg-black/80 text-white p-2 rounded text-xs whitespace-nowrap"
               style={{ pointerEvents: 'auto' }}

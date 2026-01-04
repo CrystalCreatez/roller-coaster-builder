@@ -139,20 +139,17 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
         forward.normalize();
       }
       
-      const loopRadius = 4;
+      const loopRadius = 8;
       const totalLoopPoints = 20;
       const loopPoints: TrackPoint[] = [];
-      const helixSeparation = 1.75; // Mild corkscrew separation
+      const helixSeparation = 3.5; // Mild corkscrew separation
       
       // Compute right vector for corkscrew offset
       const up = new THREE.Vector3(0, 1, 0);
       const right = new THREE.Vector3().crossVectors(forward, up).normalize();
       
-      // Get the next legacy point to blend toward
-      const nextLegacyPoint = state.trackPoints[pointIndex + 1];
-      
       // Build helical loop with mild corkscrew
-      // Lateral offset increases linearly, but eases back in final quarter to blend toward next point
+      // Lateral offset increases linearly throughout to separate entry from exit
       for (let i = 1; i <= totalLoopPoints; i++) {
         const t = i / totalLoopPoints; // 0 to 1
         const theta = t * Math.PI * 2; // 0 to 2π
@@ -160,52 +157,16 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
         const forwardOffset = Math.sin(theta) * loopRadius;
         const verticalOffset = (1 - Math.cos(theta)) * loopRadius;
         
-        // Lateral offset: increases to max at 3/4 point, then eases back toward next point
-        let lateralOffset: number;
-        const blendStart = 0.75; // Start blending at 75% through the loop
-        
-        if (t < blendStart) {
-          // Normal helical offset up to blend point
-          lateralOffset = (t / blendStart) * helixSeparation;
-        } else {
-          // Ease the offset back toward where we need to go
-          const blendT = (t - blendStart) / (1 - blendStart); // 0 to 1 in blend zone
-          const easeT = blendT * blendT * (3 - 2 * blendT); // Smooth step
-          lateralOffset = helixSeparation * (1 - easeT * 0.7); // Keep some offset but reduce
-        }
-        
-        const loopPos = new THREE.Vector3(
-          entryPos.x + forward.x * forwardOffset + right.x * lateralOffset,
-          entryPos.y + verticalOffset,
-          entryPos.z + forward.z * forwardOffset + right.z * lateralOffset
-        );
-        
-        // For the final few points, blend toward the next legacy point direction
-        if (nextLegacyPoint && t > blendStart) {
-          const blendT = (t - blendStart) / (1 - blendStart);
-          const easeT = blendT * blendT * (3 - 2 * blendT);
-          
-          // Compute where the pure loop would exit
-          const pureExitForward = entryPos.clone().add(forward.clone().multiplyScalar(0));
-          pureExitForward.add(right.clone().multiplyScalar(helixSeparation));
-          
-          // Direction toward next point from current loop position
-          const toNext = nextLegacyPoint.position.clone().sub(loopPos);
-          const distToNext = toNext.length();
-          
-          // Subtly pull the position toward a line leading to next point
-          // Only affect the horizontal, keep the vertical from the loop
-          if (distToNext > 0.1) {
-            toNext.normalize();
-            const pullStrength = easeT * 0.3; // Gentle pull
-            loopPos.x += toNext.x * pullStrength * 2;
-            loopPos.z += toNext.z * pullStrength * 2;
-          }
-        }
+        // Gradual corkscrew: linear lateral offset
+        const lateralOffset = t * helixSeparation;
         
         loopPoints.push({
           id: `point-${++pointCounter}`,
-          position: loopPos,
+          position: new THREE.Vector3(
+            entryPos.x + forward.x * forwardOffset + right.x * lateralOffset,
+            entryPos.y + verticalOffset,
+            entryPos.z + forward.z * forwardOffset + right.z * lateralOffset
+          ),
           tilt: 0,
           loopMeta: {
             entryPos: entryPos.clone(),
@@ -218,10 +179,83 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
         });
       }
       
-      // Combine: original up to entry + loop + original remainder (unchanged)
+      // Get the next point (unchanged) so we can rejoin it
+      const nextPoint = state.trackPoints[pointIndex + 1];
+      
+      // Loop exit position (last point of loop) - same as entry position
+      const loopExit = loopPoints[loopPoints.length - 1].position.clone();
+      
+      // Use same right vector from loop generation for transition separation
+      const exitSeparation = 3.0;
+      const forwardSeparation = 2.0; // Also push exit forward to prevent intersection
+      
+      // Offset the loop exit both forward and laterally to clear the entry track
+      const offsetLoopExit = loopExit.clone()
+        .add(forward.clone().multiplyScalar(forwardSeparation))
+        .add(right.clone().multiplyScalar(exitSeparation));
+      
+      // Hermite-style transition: respect both loop exit direction and legacy track direction
+      const transitionPoints: TrackPoint[] = [];
+      
+      if (nextPoint) {
+        const nextPos = nextPoint.position.clone();
+        
+        // Loop exit tangent: at θ=2π, tangent = forward
+        const exitTangent = forward.clone();
+        
+        // Legacy track incoming direction (from nextPoint toward the point after)
+        // If there's a point after nextPoint, use that to compute legacy direction
+        const nextNextPoint = state.trackPoints[pointIndex + 2];
+        let legacyTangent: THREE.Vector3;
+        
+        if (nextNextPoint) {
+          // Direction the legacy track is heading
+          legacyTangent = nextNextPoint.position.clone().sub(nextPos).normalize();
+        } else {
+          // No point after, just use direction from loop exit to next point
+          legacyTangent = nextPos.clone().sub(loopExit).normalize();
+        }
+        
+        // Cubic Hermite interpolation between loopExit and nextPos
+        // P(t) = (2t³ - 3t² + 1)P0 + (t³ - 2t² + t)T0 + (-2t³ + 3t²)P1 + (t³ - t²)T1
+        const distance = loopExit.distanceTo(nextPos);
+        const tangentScale = distance * 0.5; // Scale tangents by half the distance
+        
+        const hermite = (t: number): THREE.Vector3 => {
+          const t2 = t * t;
+          const t3 = t2 * t;
+          
+          const h00 = 2*t3 - 3*t2 + 1;
+          const h10 = t3 - 2*t2 + t;
+          const h01 = -2*t3 + 3*t2;
+          const h11 = t3 - t2;
+          
+          return new THREE.Vector3()
+            .addScaledVector(loopExit, h00)
+            .addScaledVector(exitTangent, h10 * tangentScale)
+            .addScaledVector(nextPos, h01)
+            .addScaledVector(legacyTangent, h11 * tangentScale);
+        };
+        
+        // Sample 2 points along the Hermite curve
+        transitionPoints.push({
+          id: `point-${++pointCounter}`,
+          position: hermite(0.33),
+          tilt: 0
+        });
+        
+        transitionPoints.push({
+          id: `point-${++pointCounter}`,
+          position: hermite(0.66),
+          tilt: 0
+        });
+      }
+      
+      // Combine: original up to entry + loop + transitions + original remainder (unchanged)
       const newTrackPoints = [
         ...state.trackPoints.slice(0, pointIndex + 1),
         ...loopPoints,
+        ...transitionPoints,
         ...state.trackPoints.slice(pointIndex + 1)
       ];
       

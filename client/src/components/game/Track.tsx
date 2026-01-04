@@ -210,7 +210,7 @@ export function Track() {
   
   const leftRail: [number, number, number][] = [];
   const rightRail: [number, number, number][] = [];
-  const railOffset = 0.15;
+  const railOffset = 0.3;
   
   for (let i = 0; i < railData.length; i++) {
     const { point, tilt, tangent, normal } = railData[i];
@@ -240,12 +240,12 @@ export function Track() {
       <Line
         points={leftRail}
         color="#ff4444"
-        lineWidth={2}
+        lineWidth={4}
       />
       <Line
         points={rightRail}
         color="#ff4444"
-        lineWidth={2}
+        lineWidth={4}
       />
       
       {railData.filter((_, i) => i % 2 === 0).map((data, i) => {
@@ -256,10 +256,10 @@ export function Track() {
         return (
           <mesh
             key={`tie-${i}`}
-            position={[point.x, point.y - 0.04, point.z]}
+            position={[point.x, point.y - 0.08, point.z]}
             rotation={[tiltRad, angle, 0]}
           >
-            <boxGeometry args={[0.5, 0.04, 0.06]} />
+            <boxGeometry args={[1.0, 0.08, 0.12]} />
             <meshStandardMaterial color="#8B4513" />
           </mesh>
         );
@@ -284,7 +284,7 @@ export function Track() {
         const leftHeight = leftY;
         const rightHeight = rightY;
         
-        const legInset = 0.08;
+        const legInset = 0.15;
         const leftLegX = pos.x + normal.x * (railOffset - legInset) * tiltCos;
         const leftLegZ = pos.z + normal.z * (railOffset - legInset) * tiltCos;
         const rightLegX = pos.x - normal.x * (railOffset - legInset) * tiltCos;
@@ -297,11 +297,11 @@ export function Track() {
         return (
           <group key={`wood-${i}`}>
             <mesh position={[leftLegX, leftHeight / 2, leftLegZ]}>
-              <boxGeometry args={[0.06, leftHeight, 0.06]} />
+              <boxGeometry args={[0.12, leftHeight, 0.12]} />
               <meshStandardMaterial color="#8B5A2B" />
             </mesh>
             <mesh position={[rightLegX, rightHeight / 2, rightLegZ]}>
-              <boxGeometry args={[0.06, rightHeight, 0.06]} />
+              <boxGeometry args={[0.12, rightHeight, 0.12]} />
               <meshStandardMaterial color="#8B5A2B" />
             </mesh>
             
@@ -311,14 +311,14 @@ export function Track() {
                   position={[pos.x, height * 0.3, pos.z]} 
                   rotation={[0, angle, 0]}
                 >
-                  <boxGeometry args={[0.04, 0.04, railOffset * 2.2]} />
+                  <boxGeometry args={[0.08, 0.08, railOffset * 2.2]} />
                   <meshStandardMaterial color="#A0522D" />
                 </mesh>
                 <mesh 
                   position={[pos.x, height * 0.6, pos.z]} 
                   rotation={[0, angle, 0]}
                 >
-                  <boxGeometry args={[0.04, 0.04, railOffset * 2.2]} />
+                  <boxGeometry args={[0.08, 0.08, railOffset * 2.2]} />
                   <meshStandardMaterial color="#A0522D" />
                 </mesh>
               </>
@@ -329,7 +329,7 @@ export function Track() {
                 position={[pos.x, height * 0.45, pos.z]} 
                 rotation={[crossAngle, angle, 0]}
               >
-                <boxGeometry args={[0.03, crossLength * 0.5, 0.03]} />
+                <boxGeometry args={[0.06, crossLength * 0.5, 0.06]} />
                 <meshStandardMaterial color="#CD853F" />
               </mesh>
             )}
@@ -364,8 +364,8 @@ export function Track() {
               lineWidth={2}
             />
             {/* Ground anchor */}
-            <mesh position={[groundPos.x, 0.05, groundPos.z]}>
-              <cylinderGeometry args={[0.15, 0.2, 0.1, 8]} />
+            <mesh position={[groundPos.x, 0.1, groundPos.z]}>
+              <cylinderGeometry args={[0.3, 0.4, 0.2, 8]} />
               <meshStandardMaterial color="#555555" metalness={0.8} roughness={0.3} />
             </mesh>
           </group>
@@ -374,21 +374,21 @@ export function Track() {
       
       {isNightMode && trackLights.map((light, i) => {
         const { pos, normal } = light;
-        const leftX = pos.x + normal.x * 0.25;
-        const leftZ = pos.z + normal.z * 0.25;
-        const rightX = pos.x - normal.x * 0.25;
-        const rightZ = pos.z - normal.z * 0.25;
+        const leftX = pos.x + normal.x * 0.5;
+        const leftZ = pos.z + normal.z * 0.5;
+        const rightX = pos.x - normal.x * 0.5;
+        const rightZ = pos.z - normal.z * 0.5;
         const colors = ["#FF0000", "#FFFF00", "#00FF00", "#00FFFF", "#FF00FF"];
         const color = colors[i % colors.length];
         
         return (
           <group key={`light-${i}`}>
-            <mesh position={[leftX, pos.y + 0.05, leftZ]}>
-              <sphereGeometry args={[0.15, 6, 6]} />
+            <mesh position={[leftX, pos.y + 0.1, leftZ]}>
+              <sphereGeometry args={[0.3, 6, 6]} />
               <meshBasicMaterial color={color} />
             </mesh>
-            <mesh position={[rightX, pos.y + 0.05, rightZ]}>
-              <sphereGeometry args={[0.15, 6, 6]} />
+            <mesh position={[rightX, pos.y + 0.1, rightZ]}>
+              <sphereGeometry args={[0.3, 6, 6]} />
               <meshBasicMaterial color={color} />
             </mesh>
           </group>
