@@ -141,13 +141,15 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
       
       const loopRadius = 8;
       const totalLoopPoints = 20;
-      const exitEasePoints = 5; // Extra points past 2π to ease out
       const loopPoints: TrackPoint[] = [];
       const helixSeparation = 3.5; // Mild corkscrew separation
       
       // Compute right vector for corkscrew offset
       const up = new THREE.Vector3(0, 1, 0);
       const right = new THREE.Vector3().crossVectors(forward, up).normalize();
+      
+      // Get the next point early so we can target it for exit
+      const nextPoint = state.trackPoints[pointIndex + 1];
       
       // Build helical loop with mild corkscrew
       // Lateral offset increases linearly throughout to separate entry from exit
@@ -180,84 +182,32 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
         });
       }
       
-      // Add exit easing points past theta=2π with decaying curvature
-      // This mirrors how the entry smoothly blends into the loop
-      const loopExitPos = loopPoints[loopPoints.length - 1].position.clone();
-      const maxExitTheta = Math.PI * 0.5; // Extended range for smoother exit
-      const numExitPoints = 9; // More points for smoother curve
-      
-      // Easing functions
-      const easeOutCubic = (x: number) => 1 - Math.pow(1 - x, 3);
-      const easeInOutCubic = (x: number) => x < 0.5 
-        ? 4 * x * x * x 
-        : 1 - Math.pow(-2 * x + 2, 3) / 2;
-      
-      for (let i = 1; i <= numExitPoints; i++) {
-        const t = i / numExitPoints; // 0 to 1 through exit
-        const easedT = easeOutCubic(t); // Gentler cubic easing
-        
-        // Theta continues past 2π but with decaying radius
-        const theta = Math.PI * 2 + t * maxExitTheta;
-        const decayingRadius = loopRadius * (1 - easedT); // Radius shrinks to 0
-        
-        const forwardOffset = Math.sin(theta) * decayingRadius;
-        const verticalOffset = (1 - Math.cos(theta)) * decayingRadius;
-        
-        // Lateral offset also decays back toward center using same easing
-        const lateralOffset = helixSeparation * (1 - easedT * 0.3); // Slight decay
-        
-        // Forward movement with easeInOut for smooth acceleration
-        const exitForward = easeInOutCubic(t) * 8;
-        
-        loopPoints.push({
-          id: `point-${++pointCounter}`,
-          position: new THREE.Vector3(
-            entryPos.x + forward.x * (forwardOffset + exitForward) + right.x * lateralOffset,
-            entryPos.y + verticalOffset,
-            entryPos.z + forward.z * (forwardOffset + exitForward) + right.z * lateralOffset
-          ),
-          tilt: 0,
-          loopMeta: {
-            entryPos: entryPos.clone(),
-            forward: forward.clone(),
-            up: up.clone(),
-            right: right.clone(),
-            radius: loopRadius,
-            theta: Math.min(theta, Math.PI * 2) // Cap theta for orientation calc
-          }
-        });
-      }
-      
-      // Get the next point (unchanged) so we can rejoin it
-      const nextPoint = state.trackPoints[pointIndex + 1];
-      
-      // Loop exit position (last point of loop) - same as entry position
-      const loopExit = loopPoints[loopPoints.length - 1].position.clone();
-      
-      // Use same right vector from loop generation for transition separation
-      const exitSeparation = 3.0;
-      const forwardSeparation = 2.0; // Also push exit forward to prevent intersection
-      
-      // Offset the loop exit both forward and laterally to clear the entry track
-      const offsetLoopExit = loopExit.clone()
-        .add(forward.clone().multiplyScalar(forwardSeparation))
-        .add(right.clone().multiplyScalar(exitSeparation));
-      
-      // Simple transition - the exit easing points already handle the smooth curve
-      // Just add one blend point to connect to next track section
+      // Exit transition: mirror the entry by lerping from loop exit toward next point
+      // Entry works because first loop points are close to entry point
+      // Exit should work by having last transition points close to next point
       const transitionPoints: TrackPoint[] = [];
+      const loopExitPos = loopPoints[loopPoints.length - 1].position.clone();
       
       if (nextPoint) {
         const nextPos = nextPoint.position.clone();
-        const lastLoopPoint = loopPoints[loopPoints.length - 1].position;
+        const numTransitionPoints = 5;
         
-        // Single blend point between smoothed exit and next point
-        const blendPoint = lastLoopPoint.clone().lerp(nextPos, 0.5);
-        transitionPoints.push({
-          id: `point-${++pointCounter}`,
-          position: blendPoint,
-          tilt: 0
-        });
+        // Easing function - same as entry uses implicitly via small theta values
+        const easeInQuad = (x: number) => x * x;
+        
+        for (let i = 1; i <= numTransitionPoints; i++) {
+          const t = i / (numTransitionPoints + 1); // Don't reach 1.0, leave room for nextPoint
+          const easedT = easeInQuad(t); // Start slow, accelerate toward target
+          
+          // Lerp from loop exit toward next point
+          const transPos = loopExitPos.clone().lerp(nextPos, easedT);
+          
+          transitionPoints.push({
+            id: `point-${++pointCounter}`,
+            position: transPos,
+            tilt: 0
+          });
+        }
       }
       
       // Combine: original up to entry + loop + transitions + original remainder (unchanged)
