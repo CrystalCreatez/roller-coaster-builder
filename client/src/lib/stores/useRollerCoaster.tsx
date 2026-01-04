@@ -142,7 +142,8 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
       const loopRadius = 5;
       const totalLoopPoints = 20;
       const loopPoints: TrackPoint[] = [];
-      const helixSeparation = 3.5; // Mild corkscrew separation
+      // Scale helix separation with loop radius (ratio of ~0.4)
+      const helixSeparation = loopRadius * 0.4;
       
       // Compute right vector for corkscrew offset
       const up = new THREE.Vector3(0, 1, 0);
@@ -152,7 +153,7 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
       const nextPoint = state.trackPoints[pointIndex + 1];
       
       // Build helical loop with mild corkscrew
-      // Lateral offset increases linearly throughout to separate entry from exit
+      // Lateral offset ramps up then tapers back down for smooth exit
       for (let i = 1; i <= totalLoopPoints; i++) {
         const t = i / totalLoopPoints; // 0 to 1
         const theta = t * Math.PI * 2; // 0 to 2π
@@ -160,8 +161,9 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
         const forwardOffset = Math.sin(theta) * loopRadius;
         const verticalOffset = (1 - Math.cos(theta)) * loopRadius;
         
-        // Gradual corkscrew: linear lateral offset
-        const lateralOffset = t * helixSeparation;
+        // Bell curve for lateral offset: peaks at t=0.5, returns to 0 at t=1
+        // This ensures exit returns to centerline naturally
+        const lateralOffset = Math.sin(t * Math.PI) * helixSeparation;
         
         loopPoints.push({
           id: `point-${++pointCounter}`,
