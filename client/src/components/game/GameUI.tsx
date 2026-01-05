@@ -26,10 +26,21 @@ export function GameUI() {
     setIsNightMode,
     createLoopAtPoint,
     setCameraTarget,
+    savedCoasters,
+    currentCoasterName,
+    saveCoaster,
+    loadCoaster,
+    deleteCoaster,
+    exportCoaster,
+    importCoaster,
   } = useRollerCoaster();
   
   const [position, setPosition] = useState({ x: 8, y: 8 });
   const [isDragging, setIsDragging] = useState(false);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -51,6 +62,47 @@ export function GameUI() {
   
   const handleMouseUp = () => {
     setIsDragging(false);
+  };
+  
+  const handleSave = () => {
+    if (saveName.trim()) {
+      saveCoaster(saveName.trim());
+      setSaveName("");
+      setShowSaveDialog(false);
+    }
+  };
+  
+  const handleExport = (id: string) => {
+    const json = exportCoaster(id);
+    if (json) {
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const coaster = savedCoasters.find(c => c.id === id);
+      a.download = `${coaster?.name || "coaster"}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+  
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        if (importCoaster(text)) {
+          alert("Coaster imported successfully!");
+        } else {
+          alert("Failed to import coaster. Invalid file format.");
+        }
+      };
+      reader.readAsText(file);
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
   
   const canRide = trackPoints.length >= 2;
@@ -147,6 +199,24 @@ export function GameUI() {
                 Clear
               </Button>
               
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  onClick={() => setShowSaveDialog(true)}
+                  disabled={trackPoints.length < 2}
+                  className="h-6 text-[10px] px-2 bg-teal-600 hover:bg-teal-700 flex-1"
+                >
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => setShowLoadDialog(true)}
+                  className="h-6 text-[10px] px-2 bg-slate-600 hover:bg-slate-700 flex-1"
+                >
+                  Load
+                </Button>
+              </div>
+              
               {selectedPointId && (
                 <>
                   <Button
@@ -221,7 +291,116 @@ export function GameUI() {
             </Button>
           </>
         )}
+        
+        {currentCoasterName && (
+          <p className="text-[10px] text-gray-500 mt-1 truncate">
+            {currentCoasterName}
+          </p>
+        )}
       </div>
+      
+      {/* Save Dialog */}
+      {showSaveDialog && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowSaveDialog(false)} />
+          <div className="relative bg-gray-900 p-4 rounded-lg text-white max-w-xs w-full mx-4">
+            <h2 className="text-sm font-bold mb-2">Save Coaster</h2>
+            <input
+              type="text"
+              value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              placeholder="Enter coaster name..."
+              className="w-full p-2 rounded bg-gray-800 text-white text-sm mb-2"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleSave()}
+            />
+            <div className="flex gap-2">
+              <Button size="sm" onClick={handleSave} className="flex-1 bg-teal-600 hover:bg-teal-700">
+                Save
+              </Button>
+              <Button size="sm" onClick={() => setShowSaveDialog(false)} variant="outline" className="flex-1">
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Load Dialog */}
+      {showLoadDialog && (
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-auto">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setShowLoadDialog(false)} />
+          <div className="relative bg-gray-900 p-4 rounded-lg text-white max-w-sm w-full mx-4 max-h-[80vh] overflow-y-auto">
+            <h2 className="text-sm font-bold mb-2">Saved Coasters</h2>
+            
+            {savedCoasters.length === 0 ? (
+              <p className="text-gray-400 text-xs mb-2">No saved coasters yet.</p>
+            ) : (
+              <div className="space-y-2 mb-2">
+                {savedCoasters.map((coaster) => (
+                  <div key={coaster.id} className="bg-gray-800 p-2 rounded text-xs">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-medium truncate">{coaster.name}</span>
+                      <span className="text-gray-500 text-[10px]">
+                        {new Date(coaster.timestamp).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        size="sm"
+                        onClick={() => { loadCoaster(coaster.id); setShowLoadDialog(false); }}
+                        className="h-5 text-[10px] px-2 bg-green-600 hover:bg-green-700 flex-1"
+                      >
+                        Load
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => handleExport(coaster.id)}
+                        className="h-5 text-[10px] px-2 bg-blue-600 hover:bg-blue-700"
+                      >
+                        Export
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => deleteCoaster(coaster.id)}
+                        variant="destructive"
+                        className="h-5 text-[10px] px-2"
+                      >
+                        Del
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div className="border-t border-gray-700 pt-2 mt-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImport}
+                accept=".json"
+                className="hidden"
+              />
+              <Button
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full h-6 text-[10px] bg-orange-600 hover:bg-orange-700 mb-2"
+              >
+                Import from File
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => setShowLoadDialog(false)}
+                variant="outline"
+                className="w-full h-6 text-[10px]"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

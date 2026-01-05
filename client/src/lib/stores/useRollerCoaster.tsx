@@ -19,6 +19,95 @@ export interface TrackPoint {
   loopMeta?: LoopMetadata; // Present if this point is part of a loop
 }
 
+// Serializable versions for JSON storage
+interface SerializedLoopMeta {
+  entryPos: [number, number, number];
+  forward: [number, number, number];
+  up: [number, number, number];
+  right: [number, number, number];
+  radius: number;
+  theta: number;
+}
+
+interface SerializedTrackPoint {
+  id: string;
+  position: [number, number, number];
+  tilt: number;
+  loopMeta?: SerializedLoopMeta;
+}
+
+export interface SavedCoaster {
+  id: string;
+  name: string;
+  timestamp: number;
+  trackPoints: SerializedTrackPoint[];
+  isLooped: boolean;
+  hasChainLift: boolean;
+  showWoodSupports: boolean;
+}
+
+// Serialization helpers
+function serializeVector3(v: THREE.Vector3): [number, number, number] {
+  return [v.x, v.y, v.z];
+}
+
+function deserializeVector3(arr: [number, number, number]): THREE.Vector3 {
+  return new THREE.Vector3(arr[0], arr[1], arr[2]);
+}
+
+function serializeTrackPoint(point: TrackPoint): SerializedTrackPoint {
+  const serialized: SerializedTrackPoint = {
+    id: point.id,
+    position: serializeVector3(point.position),
+    tilt: point.tilt,
+  };
+  if (point.loopMeta) {
+    serialized.loopMeta = {
+      entryPos: serializeVector3(point.loopMeta.entryPos),
+      forward: serializeVector3(point.loopMeta.forward),
+      up: serializeVector3(point.loopMeta.up),
+      right: serializeVector3(point.loopMeta.right),
+      radius: point.loopMeta.radius,
+      theta: point.loopMeta.theta,
+    };
+  }
+  return serialized;
+}
+
+function deserializeTrackPoint(serialized: SerializedTrackPoint): TrackPoint {
+  const point: TrackPoint = {
+    id: serialized.id,
+    position: deserializeVector3(serialized.position),
+    tilt: serialized.tilt,
+  };
+  if (serialized.loopMeta) {
+    point.loopMeta = {
+      entryPos: deserializeVector3(serialized.loopMeta.entryPos),
+      forward: deserializeVector3(serialized.loopMeta.forward),
+      up: deserializeVector3(serialized.loopMeta.up),
+      right: deserializeVector3(serialized.loopMeta.right),
+      radius: serialized.loopMeta.radius,
+      theta: serialized.loopMeta.theta,
+    };
+  }
+  return point;
+}
+
+const STORAGE_KEY = "roller_coaster_saves";
+
+function loadSavedCoasters(): SavedCoaster[] {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedCoasters(coasters: SavedCoaster[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(coasters));
+}
+
 interface RollerCoasterState {
   mode: CoasterMode;
   trackPoints: TrackPoint[];
@@ -33,6 +122,8 @@ interface RollerCoasterState {
   showWoodSupports: boolean;
   isNightMode: boolean;
   cameraTarget: THREE.Vector3 | null;
+  savedCoasters: SavedCoaster[];
+  currentCoasterName: string | null;
   
   setMode: (mode: CoasterMode) => void;
   setCameraTarget: (target: THREE.Vector3 | null) => void;
@@ -54,6 +145,14 @@ interface RollerCoasterState {
   setIsNightMode: (night: boolean) => void;
   startRide: () => void;
   stopRide: () => void;
+  
+  // Save/Load functionality
+  saveCoaster: (name: string) => void;
+  loadCoaster: (id: string) => void;
+  deleteCoaster: (id: string) => void;
+  exportCoaster: (id: string) => string | null;
+  importCoaster: (jsonString: string) => boolean;
+  refreshSavedCoasters: () => void;
 }
 
 let pointCounter = 0;
@@ -72,6 +171,8 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
   showWoodSupports: false,
   isNightMode: false,
   cameraTarget: null,
+  savedCoasters: loadSavedCoasters(),
+  currentCoasterName: null,
   
   setMode: (mode) => set({ mode }),
   
@@ -259,5 +360,123 @@ export const useRollerCoaster = create<RollerCoasterState>((set, get) => ({
   
   stopRide: () => {
     set({ mode: "build", isRiding: false, rideProgress: 0 });
+  },
+  
+  // Save/Load functionality
+  saveCoaster: (name: string) => {
+    const state = get();
+    const id = `coaster-${Date.now()}`;
+    const savedCoaster: SavedCoaster = {
+      id,
+      name,
+      timestamp: Date.now(),
+      trackPoints: state.trackPoints.map(serializeTrackPoint),
+      isLooped: state.isLooped,
+      hasChainLift: state.hasChainLift,
+      showWoodSupports: state.showWoodSupports,
+    };
+    
+    const coasters = loadSavedCoasters();
+    coasters.push(savedCoaster);
+    persistSavedCoasters(coasters);
+    
+    set({ savedCoasters: coasters, currentCoasterName: name });
+  },
+  
+  loadCoaster: (id: string) => {
+    try {
+      const coasters = loadSavedCoasters();
+      const coaster = coasters.find(c => c.id === id);
+      if (!coaster || !Array.isArray(coaster.trackPoints)) return;
+      
+      const trackPoints = coaster.trackPoints.map(deserializeTrackPoint);
+      
+      // Update pointCounter to avoid ID collisions
+      const maxId = trackPoints.reduce((max, p) => {
+        const num = parseInt(p.id.replace('point-', ''), 10);
+        return isNaN(num) ? max : Math.max(max, num);
+      }, 0);
+      pointCounter = maxId;
+      
+      set({
+        trackPoints,
+        isLooped: Boolean(coaster.isLooped),
+        hasChainLift: coaster.hasChainLift !== false,
+        showWoodSupports: Boolean(coaster.showWoodSupports),
+        currentCoasterName: coaster.name || "Untitled",
+        selectedPointId: null,
+        rideProgress: 0,
+        isRiding: false,
+        mode: "build",
+      });
+    } catch (e) {
+      console.error("Failed to load coaster:", e);
+    }
+  },
+  
+  deleteCoaster: (id: string) => {
+    const coasters = loadSavedCoasters().filter(c => c.id !== id);
+    persistSavedCoasters(coasters);
+    set({ savedCoasters: coasters });
+  },
+  
+  exportCoaster: (id: string) => {
+    const coasters = loadSavedCoasters();
+    const coaster = coasters.find(c => c.id === id);
+    if (!coaster) return null;
+    return JSON.stringify(coaster, null, 2);
+  },
+  
+  importCoaster: (jsonString: string) => {
+    try {
+      const coaster = JSON.parse(jsonString);
+      
+      // Validate required fields
+      if (!coaster || typeof coaster !== 'object') return false;
+      if (typeof coaster.name !== 'string' || !coaster.name.trim()) return false;
+      if (!Array.isArray(coaster.trackPoints)) return false;
+      
+      // Validate each track point has required structure
+      for (const pt of coaster.trackPoints) {
+        if (!pt || typeof pt !== 'object') return false;
+        if (!Array.isArray(pt.position) || pt.position.length !== 3) return false;
+        if (!pt.position.every((n: unknown) => typeof n === 'number' && isFinite(n))) return false;
+        if (typeof pt.tilt !== 'number') return false;
+        if (typeof pt.id !== 'string') return false;
+        
+        // Validate loopMeta if present
+        if (pt.loopMeta) {
+          const lm = pt.loopMeta;
+          if (!Array.isArray(lm.entryPos) || lm.entryPos.length !== 3) return false;
+          if (!Array.isArray(lm.forward) || lm.forward.length !== 3) return false;
+          if (!Array.isArray(lm.up) || lm.up.length !== 3) return false;
+          if (!Array.isArray(lm.right) || lm.right.length !== 3) return false;
+          if (typeof lm.radius !== 'number' || typeof lm.theta !== 'number') return false;
+        }
+      }
+      
+      // Assign new ID to avoid conflicts
+      const validCoaster: SavedCoaster = {
+        id: `coaster-${Date.now()}`,
+        name: coaster.name.trim(),
+        timestamp: Date.now(),
+        trackPoints: coaster.trackPoints,
+        isLooped: Boolean(coaster.isLooped),
+        hasChainLift: coaster.hasChainLift !== false,
+        showWoodSupports: Boolean(coaster.showWoodSupports),
+      };
+      
+      const coasters = loadSavedCoasters();
+      coasters.push(validCoaster);
+      persistSavedCoasters(coasters);
+      set({ savedCoasters: coasters });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  
+  refreshSavedCoasters: () => {
+    set({ savedCoasters: loadSavedCoasters() });
   },
 }));
