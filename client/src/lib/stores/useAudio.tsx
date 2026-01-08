@@ -27,7 +27,7 @@ export const useAudio = create<AudioState>((set, get) => ({
   daylightMusic: null,
   hitSound: null,
   successSound: null,
-  isMuted: true, // Start muted by default
+  isMuted: false, // Start unmuted to allow daylight music
   isDaylightMusicPlaying: false,
   
   setBackgroundMusic: (music) => set({ backgroundMusic: music }),
@@ -82,12 +82,16 @@ export const useAudio = create<AudioState>((set, get) => ({
   
   playDaylightMusic: () => {
     const { daylightMusic, isMuted, isDaylightMusicPlaying } = get();
+    console.log("playDaylightMusic called:", { hasDaylightMusic: !!daylightMusic, isMuted, isDaylightMusicPlaying });
     if (daylightMusic && !isDaylightMusicPlaying) {
       daylightMusic.loop = true;
       daylightMusic.volume = 0.5;
       
       if (!isMuted) {
-        daylightMusic.play().catch(error => {
+        console.log("Attempting to play daylight music...");
+        daylightMusic.play().then(() => {
+          console.log("Daylight music playing successfully!");
+        }).catch(error => {
           console.log("Daylight music play prevented:", error);
         });
       }

@@ -20,6 +20,7 @@ function MusicController() {
     music.loop = true;
     music.volume = 0.5;
     setDaylightMusic(music);
+    console.log("Daylight music loaded");
     
     return () => {
       music.pause();
